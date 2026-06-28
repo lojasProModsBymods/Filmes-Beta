@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplicativo de Filmes e Séries</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        dark: '#0F172A',
+                        darkAlt: '#131C31',
+                        cardBg: '#1E293B',
+                        accent: '#E50914',
+                        textLight: '#F8FAFC',
+                        textMuted: '#94A3B8',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body { overscroll-behavior: none; }
+
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .safe-bottom { padding-bottom: calc(5rem + env(safe-area-inset-bottom)); }
+
+        /* Transição suave entre telas */
+        .tela { position: fixed; inset: 0; background: #0F172A; z-index: 30; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+        .tela-entrada { animation: telaEntrar 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
+        .tela-saida { animation: telaSair 0.25s cubic-bezier(0.55, 0.06, 0.68, 0.19) forwards; pointer-events: none; }
+        @keyframes telaEntrar { from { opacity: 0; transform: translateX(60px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes telaSair { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(-60px); } }
+
+        /* Detalhes sobe de baixo */
+        .detalhes-entrada { animation: detalhesEntrar 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
+        .detalhes-saida { animation: detalhesSair 0.3s cubic-bezier(0.55, 0.06, 0.68, 0.19) forwards; pointer-events: none; }
+        @keyframes detalhesEntrar { from { opacity: 0; transform: translateY(100%); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes detalhesSair { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(100%); } }
+
+        /* Card hover otimizado */
+        .card-item { will-change: transform; contain: layout style paint; }
+        .card-item:active { transform: scale(0.97); transition: transform 0.1s; }
+
+        /* Skeleton loading */
+        .skeleton { background: linear-gradient(90deg, #1E293B 25%, #2a3a52 50%, #1E293B 75%); background-size: 200% 100%; animation: shimmer 1.5s ease-in-out infinite; border-radius: 0.5rem; }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+        /* Fade in suave para cards */
+        .card-fade { opacity: 0; animation: cardAparecer 0.4s ease forwards; }
+        @keyframes cardAparecer { to { opacity: 1; } }
+
+        /* Toast */
+        .toast-entrada { animation: toastIn 0.3s ease forwards; }
+        .toast-saida { animation: toastOut 0.3s ease forwards; }
+        @keyframes toastIn { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes toastOut { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(30px); } }
+
+        /* Botão ativo do menu inferior */
+        .nav-btn { transition: color 0.2s, transform 0.15s; }
+        .nav-btn:active { transform: scale(0.9); }
+        .nav-ativo { color: #E50914 !important; }
+
+        /* Categorias grid */
+        .cat-card { transition: transform 0.2s, box-shadow 0.2s; }
+        .cat-card:active { transform: scale(0.95); }
+
+        /* Barra de busca foco */
+        #campoBusca:focus + .busca-borda { border-color: #E50914; }
+
+        /* Imagem com fade-in */
+        .img-lazy { opacity: 0; transition: opacity 0.4s ease; }
+        .img-lazy.carregada { opacity: 1; }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-dark text-textLight font-sans min-h-screen">
+
+    <!-- ==================== BARRA SUPERIOR FIXA ==================== -->
+    <header id="barraSuperior" class="fixed top-0 left-0 right-0 z-50 bg-dark/95 backdrop-blur-sm px-4 py-3 transition-transform duration-300">
+        <div class="relative flex items-center bg-cardBg rounded-xl px-4 py-3 border border-transparent focus-within:border-accent/50 transition-colors">
+            <i class="fa fa-search text-textMuted mr-3 text-sm"></i>
+            <input type="text" id="campoBusca" placeholder="Pesquise filmes, séries, animes..."
+                   class="w-full bg-transparent outline-none text-base text-textLight placeholder:text-textMuted">
+            <div class="flex gap-4 ml-3 text-textMuted" id="iconesBusca">
+                <button class="hover:text-white transition-colors p-1" id="btnHistorico" title="Histórico">
+                    <i class="fa fa-clock-o text-lg"></i>
+                </button>
+                <button class="hover:text-white transition-colors p-1" id="btnBaixadosTopo" title="Baixados">
+                    <i class="fa fa-download text-lg"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- ==================== MENU CATEGORIAS FIXO ==================== -->
+    <nav id="barraCategorias" class="fixed top-[68px] left-0 right-0 z-40 bg-dark/95 backdrop-blur-sm overflow-x-auto scrollbar-hide px-4 py-3 transition-transform duration-300">
+        <ul class="flex gap-7 whitespace-nowrap text-base font-medium" id="menuCategorias">
+            <li class="text-white font-bold border-b-2 border-accent pb-1 cursor-pointer" data-cat="inicio">Início</li>
+            <li class="text-textMuted hover:text-white transition-colors cursor-pointer" data-cat="series">Séries</li>
+            <li class="text-textMuted hover:text-white transition-colors cursor-pointer" data-cat="filmes">Filmes</li>
+            <li class="text-textMuted hover:text-white transition-colors cursor-pointer" data-cat="lancamentos">Lançamentos</li>
+            <li class="text-textMuted hover:text-white transition-colors cursor-pointer" data-cat="populares">Populares</li>
+            <li class="text-textMuted hover:text-white transition-colors cursor-pointer" data-cat="animes">Animes</li>
+        </ul>
+    </nav>
+
+    <!-- ==================== TELA INÍCIO (grade principal) ==================== -->
+    <main class="px-4 pt-[130px] pb-6 safe-bottom" id="telaPrincipal">
+        <div class="grid grid-cols-3 gap-3 md:gap-4" id="gradeConteudos"></div>
+        <!-- Botão carregar mais -->
+        <div id="areaCarregarMais" class="hidden text-center py-6">
+            <button id="btnCarregarMais" class="bg-cardBg hover:bg-cardBg/80 text-textLight px-8 py-3 rounded-xl font-semibold transition-all active:scale-95">
+                <i class="fa fa-refresh mr-2"></i>Carregar Mais
+            </button>
+        </div>
+    </main>
+
+    <!-- ==================== TELA DE DETALHES ==================== -->
+    <section id="telaDetalhes" class="fixed inset-0 bg-dark z-[60] overflow-y-auto hidden" style="-webkit-overflow-scrolling:touch">
+        <div class="relative">
+            <button id="btnFecharDetalhes" class="absolute top-4 left-4 z-10 bg-black/60 backdrop-blur-sm rounded-full p-3 text-xl hover:bg-black/80 transition-colors active:scale-90">
+                <i class="fa fa-arrow-left"></i>
+            </button>
+            <button id="btnCompartilhar" class="absolute top-4 right-4 z-10 bg-black/60 backdrop-blur-sm rounded-full p-3 text-xl hover:bg-black/80 transition-colors active:scale-90">
+                <i class="fa fa-share-alt"></i>
+            </button>
+            <img id="imgDetalheCapa" src="" alt="" class="w-full h-[350px] object-cover bg-cardBg img-lazy">
+            <div class="p-5 -mt-10 bg-dark rounded-t-3xl relative">
+                <h2 id="tituloDetalhe" class="text-2xl font-bold mb-2"></h2>
+                <div class="flex items-center gap-4 mb-4 text-sm flex-wrap">
+                    <span id="notaDetalhe" class="text-yellow-400 font-semibold"></span>
+                    <span id="anoDetalhe" class="text-textMuted"></span>
+                    <span id="tipoDetalhe" class="text-textMuted"></span>
+                </div>
+                <p id="sinopseDetalhe" class="text-textMuted leading-relaxed mb-6 text-[15px]"></p>
+                <div class="flex gap-3 mb-6">
+                    <button id="btnAssistir" class="bg-accent hover:bg-accent/90 px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all active:scale-95">
+                        <i class="fa fa-play"></i> Assistir Agora
+                    </button>
+                    <button id="btnFavoritar" class="bg-cardBg hover:bg-cardBg/80 px-4 py-3 rounded-xl text-xl transition-all active:scale-95" title="Adicionar à lista">
+                        <i class="fa fa-plus"></i>
+                    </button>
+                    <button id="btnBaixar" class="bg-cardBg hover:bg-cardBg/80 px-4 py-3 rounded-xl text-xl transition-all active:scale-95" title="Baixar">
+                        <i class="fa fa-download"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ==================== TELA CATEGORIAS ==================== -->
+    <div id="telaCategorias" class="tela hidden safe-bottom">
+        <div class="px-4 pt-[100px] pb-6">
+            <h2 class="text-2xl font-bold mb-2">Categorias</h2>
+            <p class="text-textMuted mb-6">Explore por gênero</p>
+            <div class="grid grid-cols-2 gap-3" id="gridCategorias"></div>
+        </div>
+    </div>
+
+    <!-- ==================== TELA BAIXADOS ==================== -->
+    <div id="telaBaixados" class="tela hidden safe-bottom">
+        <div class="px-4 pt-[100px] pb-6">
+            <h2 class="text-2xl font-bold mb-2">Baixados</h2>
+            <p class="text-textMuted mb-6">Seus conteúrios offline</p>
+            <div id="listaBaixados"></div>
+        </div>
+    </div>
+
+    <!-- ==================== TELA PERFIL ==================== -->
+    <div id="telaPerfil" class="tela hidden safe-bottom">
+        <div class="px-4 pt-[100px] pb-6">
+            <h2 class="text-2xl font-bold mb-2">Perfil</h2>
+            <p class="text-textMuted mb-6">Suas informações e configurações</p>
+            <div id="conteudoPerfil"></div>
+        </div>
+    </div>
+
+    <!-- ==================== TELA HISTÓRICO ==================== -->
+    <div id="telaHistorico" class="tela hidden safe-bottom">
+        <div class="px-4 pt-[100px] pb-6">
+            <h2 class="text-2xl font-bold mb-2">Histórico</h2>
+            <p class="text-textMuted mb-6">Últimos conteúdos acessados</p>
+            <div id="listaHistorico"></div>
+        </div>
+    </div>
+
+    <!-- ==================== TELA PLAYER ==================== -->
+    <div id="telaPlayer" class="tela hidden">
+        <div class="relative h-full flex flex-col">
+            <button id="btnFecharPlayer" class="absolute top-4 left-4 z-10 bg-black/60 backdrop-blur-sm rounded-full p-3 text-xl hover:bg-black/80 transition-colors active:scale-90">
+                <i class="fa fa-arrow-left"></i>
+            </button>
+            <div class="flex-1 bg-black flex items-center justify-center">
+                <div class="text-center px-8">
+                    <div class="w-24 h-24 rounded-full bg-cardBg flex items-center justify-center mx-auto mb-6">
+                        <i class="fa fa-play text-4xl text-accent ml-1"></i>
+                    </div>
+                    <h3 id="tituloPlayer" class="text-2xl font-bold mb-2"></h3>
+                    <p id="infoPlayer" class="text-textMuted mb-8"></p>
+                    <div class="w-full bg-cardBg rounded-full h-1.5 mb-3">
+                        <div class="bg-accent h-1.5 rounded-full transition-all duration-300" style="width: 0%" id="barraProgresso"></div>
+                    </div>
+                    <div class="flex justify-between text-sm text-textMuted mb-8">
+                        <span id="tempoAtual">00:00</span>
+                        <span id="tempoTotal">02:15:00</span>
+                    </div>
+                    <div class="flex items-center justify-center gap-8">
+                        <button class="text-textMuted hover:text-white transition-colors text-2xl"><i class="fa fa-step-backward"></i></button>
+                        <button id="btnPlayPause" class="text-white text-4xl hover:text-accent transition-colors active:scale-90"><i class="fa fa-play"></i></button>
+                        <button class="text-textMuted hover:text-white transition-colors text-2xl"><i class="fa fa-step-forward"></i></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== TOAST NOTIFICAÇÃO ==================== -->
+    <div id="toast" class="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70] hidden">
+        <div class="bg-cardBg border border-cardBg/80 text-textLight px-5 py-3 rounded-xl shadow-xl flex items-center gap-3 text-sm font-medium">
+            <i id="toastIcon" class="fa fa-check-circle text-green-400"></i>
+            <span id="toastMsg"></span>
+        </div>
+    </div>
+
+    <!-- ==================== NAVEGAÇÃO INFERIOR ==================== -->
+    <footer id="navInferior" class="fixed bottom-0 left-0 right-0 bg-dark/95 backdrop-blur-md border-t border-cardBg z-50 px-4 py-2.5">
+        <div class="flex justify-around text-center">
+            <button class="nav-btn nav-ativo flex flex-col items-center p-1" data-tela="inicio">
+                <i class="fa fa-home text-xl block mb-0.5"></i>
+                <span class="text-[10px] font-medium">Início</span>
+            </button>
+            <button class="nav-btn text-textMuted flex flex-col items-center p-1" data-tela="categorias">
+                <i class="fa fa-th-large text-xl block mb-0.5"></i>
+                <span class="text-[10px] font-medium">Categorias</span>
+            </button>
+            <button class="nav-btn text-textMuted flex flex-col items-center p-1" data-tela="baixados">
+                <i class="fa fa-download text-xl block mb-0.5"></i>
+                <span class="text-[10px] font-medium">Baixados</span>
+            </button>
+            <button class="nav-btn text-textMuted flex flex-col items-center p-1" data-tela="perfil">
+                <i class="fa fa-user-circle text-xl block mb-0.5"></i>
+                <span class="text-[10px] font-medium">Perfil</span>
+            </button>
+        </div>
+    </footer>
+
+    <!-- ==================== JAVASCRIPT ==================== -->
+    <script>
+    (function() {
+        'use strict';
+
+        // === CONFIGURAÇÃO ===
+        const API_KEY = '2aa8a98c29085f3f4c948659c46d4c2a';
+        const BASE_URL = 'https://api.themoviedb.org/3';
+        const IMG_URL = 'https://image.tmdb.org/t/p/w500';
+        const IDIOMA = 'pt-BR';
+        let paginaAtual = 1;
+        let categoriaAtiva = 'inicio';
+        let telaAtiva = 'inicio';
+        let favoritos = JSON.parse(localStorage.getItem('favoritos') || '[]');
+        let baixados = JSON.parse(localStorage.getItem('baixados') || '[]');
+        let historico = JSON.parse(localStorage.getItem('historico') || '[]');
+        let playerIntervalo = null;
+        let tempoSegundos = 0;
+
+        // === DADOS INICIAIS ===
+        const dadosIniciais = [
+            {id:1,titulo:"Stranger Things",info:"8.7 - 5 Temporadas",capa:"https://image.tmdb.org/t/p/w500/49WJfeN0moxb9IPfGn8AIqMGskD.jpg",novo:true,nota:8.7,ano:"2016",tipo:"Série",sinopse:"Quando um menino desaparece, uma pequena cidade descobre um mistério envolvendo experimentos secretos, forças sobrenaturais e uma estranha garota."},
+            {id:2,titulo:"The Last of Us",info:"8.6 - 2 Temporadas",capa:"https://image.tmdb.org/t/p/w500/uKvVjHNqB5VmOrdxqAt2F7J78ED.jpg",novo:true,nota:8.6,ano:"2023",tipo:"Série",sinopse:"Joel e Ellie, um par conectado pela dureza do mundo pós-apocalíptico, enfrentam perigos mortais em uma jornada implacável pelos Estados Unidos."},
+            {id:3,titulo:"Origem (Inception)",info:"8.8 - Christopher Nolan",capa:"https://image.tmdb.org/t/p/w500/edv5CZvWj09upOsy2Y6IwDhK8bt.jpg",novo:false,nota:8.8,ano:"2010",tipo:"Filme",sinopse:"Um ladrão que rouba segredos corporativos usando a tecnologia de compartilhamento de sonhos recebe a tarefa inversa: plantar uma ideia na mente de um CEO."},
+            {id:4,titulo:"Breaking Bad",info:"9.5 - 5 Temporadas",capa:"https://image.tmdb.org/t/p/w500/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",novo:false,nota:9.5,ano:"2008",tipo:"Série",sinopse:"Um professor de química do ensino médio diagnosticado com câncer terminal recorre à fabricação de metanfetamina para garantir o futuro financeiro de sua família."},
+            {id:5,titulo:"Duna: Parte Dois",info:"8.2 - Denis Villeneuve",capa:"https://image.tmdb.org/t/p/w500/d5NXSklXo0qyIYkgV94XAgMIckC.jpg",novo:true,nota:8.2,ano:"2024",tipo:"Filme",sinopse:"Paul Atreides se une aos Fremen em busca de vingança contra os conspiradores que destruíram sua família, enquanto tenta evitar um futuro terrível."},
+            {id:6,titulo:"The Witcher",info:"8.1 - 3 Temporadas",capa:"https://image.tmdb.org/t/p/w500/7WUHnWGx5OO145IRxPDUkQSh4C7.jpg",novo:false,nota:8.1,ano:"2019",tipo:"Série",sinopse:"Geralt de Rívia, um caçador de monstros mutante, luta para encontrar seu lugar em um mundo onde as pessoas muitas vezes são mais perversas que as criaturas."},
+            {id:7,titulo:"Wednesday",info:"8.1 - Tim Burton",capa:"https://image.tmdb.org/t/p/w500/9PFonBhy4cQy7Jz20NpMygczOkv.jpg",novo:true,nota:8.1,ano:"2022",tipo:"Série",sinopse:"Wandinha Addams investiga uma série de assassinatos na cidade de Jericó, enquanto descobre seus poderes psíquicos e navega por novos relacionamentos na Nevermore Academy."},
+            {id:8,titulo:"Oppenheimer",info:"8.3 - Christopher Nolan",capa:"https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg",novo:false,nota:8.3,ano:"2023",tipo:"Filme",sinopse:"A história do físico J. Robert Oppenheimer e seu papel no desenvolvimento da bomba atômica durante o Projeto Manhattan na Segunda Guerra Mundial."},
+            {id:9,titulo:"Interestelar",info:"8.6 - Christopher Nolan",capa:"https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",novo:false,nota:8.6,ano:"2014",tipo:"Filme",sinopse:"Em um futuro onde a Terra está morrendo, um grupo de astronautas viaja através de um buraco de minhoca em busca de um novo lar para a humanidade."},
+            {id:10,titulo:"Game of Thrones",info:"9.3 - 8 Temporadas",capa:"https://image.tmdb.org/t/p/w500/7WUHnWGx5OO145IRxPDUkQSh4C7.jpg",novo:false,nota:9.3,ano:"2011",tipo:"Série",sinopse:"Nove famílias nobres lutam pelo controle das terras de Westeros, enquanto uma antiga ameaça desperta no gelo do norte."},
+            {id:11,titulo:"The Boys",info:"8.7 - 4 Temporadas",capa:"https://image.tmdb.org/t/p/w500/uDO8zWDhfWwoFdKS4fzkUJt0Rf0.jpg",novo:true,nota:8.7,ano:"2019",tipo:"Série",sinopse:"Um grupo de vigilantes se une para combater super-heróis corruptos que abusam de seus poderes em vez de usá-los para o bem."},
+            {id:12,titulo:"Pânico (Scream VI)",info:"7.4 - Thriller",capa:"https://image.tmdb.org/t/p/w500/xf9wuDcqlUPWABZNeDKPbZUjWx0.jpg",novo:false,nota:7.4,ano:"2023",tipo:"Filme",sinopse:"Os sobreviventes dos assassinatos de Ghostface deixam Woodsboro para trás e começam uma nova vida em Nova York."}
+        ];
+
+        // === CATEGORIAS DE GÊNERO ===
+        const categorias = [
+            { nome: "Ação", cor: "from-red-600 to-orange-500", icon: "fa-bolt" },
+            { nome: "Comédia", cor: "from-yellow-500 to-amber-400", icon: "fa-smile-o" },
+            { nome: "Drama", cor: "from-blue-600 to-indigo-500", icon: "fa-theater-masks" },
+            { nome: "Terror", cor: "from-gray-800 to-red-900", icon: "fa-ghost" },
+            { nome: "Ficção Científica", cor: "from-cyan-500 to-blue-600", icon: "fa-rocket" },
+            { nome: "Romance", cor: "from-pink-500 to-rose-400", icon: "fa-heart" },
+            { nome: "Suspense", cor: "from-purple-700 to-indigo-600", icon: "fa-eye" },
+            { nome: "Animação", cor: "from-green-500 to-emerald-400", icon: "fa-paw" },
+            { nome: "Documentário", cor: "from-teal-500 to-cyan-600", icon: "fa-video-camera" },
+            { nome: "Fantasia", cor: "from-violet-600 to-purple-500", icon: "fa-magic" },
+            { nome: "Crime", cor: "from-slate-600 to-gray-700", icon: "fa-gavel" },
+            { nome: "Aventura", cor: "from-orange-500 to-yellow-500", icon: "fa-compass" },
+        ];
+
+        // === ELEMENTOS DO DOM ===
+        const $ = id => document.getElementById(id);
+
+        // === TOAST ===
+        function mostrarToast(msg, icon = 'fa-check-circle', cor = 'text-green-400') {
+            const toast = $('toast');
+            $('toastIcon').className = 'fa ' + icon + ' ' + cor;
+            $('toastMsg').textContent = msg;
+            toast.classList.remove('hidden');
+            toast.firstElementChild.className = toast.firstElementChild.className.replace('toast-saida', '');
+            toast.firstElementChild.classList.add('toast-entrada');
+            setTimeout(() => {
+                toast.firstElementChild.classList.remove('toast-entrada');
+                toast.firstElementChild.classList.add('toast-saida');
+                setTimeout(() => toast.classList.add('hidden'), 300);
+            }, 2200);
+        }
+
+        // === SKELETON LOADING ===
+        function mostrarSkeleton() {
+            const grade = $('gradeConteudos');
+            grade.innerHTML = '';
+            for (let i = 0; i < 9; i++) {
+                const el = document.createElement('div');
+                el.className = 'skeleton h-[220px] rounded-lg';
+                el.style.animationDelay = (i * 0.1) + 's';
+                grade.appendChild(el);
+            }
+        }
+
+        // === IMAGEM LAZY FADE-IN ===
+        function imgComFade(img) {
+            if (img.complete) { img.classList.add('carregada'); return; }
+            img.onload = () => img.classList.add('carregada');
+            img.onerror = () => { img.src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" fill="%231E293B"><rect width="300" height="450"/><text x="150" y="225" text-anchor="middle" fill="%2394A3B8" font-size="14" font-family="sans-serif">Sem imagem</text></svg>'); img.classList.add('carregada'); };
+        }
+
+        // === EXIBIR GRADE ===
+        function exibirGrade(lista, append = false) {
+            const grade = $('gradeConteudos');
+            if (!append) grade.innerHTML = '';
+
+            if (!lista.length) {
+                grade.innerHTML = '<div class="col-span-3 text-center py-12 text-textMuted"><i class="fa fa-film text-4xl mb-3 block opacity-30"></i><p class="text-base">Nenhum resultado encontrado</p></div>';
+                $('areaCarregarMais').classList.add('hidden');
+                return;
+            }
+
+            const frag = document.createDocumentFragment();
+            lista.forEach((item, idx) => {
+                const cartao = document.createElement('div');
+                cartao.className = 'card-item card-fade relative rounded-lg overflow-hidden shadow-lg cursor-pointer';
+                cartao.style.animationDelay = (idx * 0.05) + 's';
+                cartao.onclick = () => abrirDetalhes(item);
+                cartao.innerHTML = `
+                    ${item.novo ? '<span class="absolute top-2 left-2 bg-accent text-white text-[10px] font-bold px-2 py-0.5 rounded z-[2]">NOVO</span>' : ''}
+                    <img src="${item.capa}" alt="${item.titulo}" class="w-full h-[220px] object-cover bg-cardBg img-lazy" loading="lazy">
+                    <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2.5 pt-8">
+                        <p class="font-semibold text-sm text-white">${item.info}</p>
+                        <p class="text-xs text-textMuted truncate mt-0.5">${item.titulo}</p>
+                    </div>
+                `;
+                frag.appendChild(cartao);
+            });
+            grade.appendChild(frag);
+
+            // Lazy fade-in nas imagens
+            requestAnimationFrame(() => {
+                grade.querySelectorAll('.img-lazy').forEach(imgComFade);
+            });
+        }
+
+        // === CARREGAR DADOS ===
+        async function carregarDados(categoria = 'inicio', pag = 1, append = false) {
+            categoriaAtiva = categoria;
+            paginaAtual = pag;
+
+            if (categoria === 'inicio') {
+                if (append) {
+                    exibirGrade(dadosIniciais.slice(pag * 9), true);
+                } else {
+                    exibirGrade(dadosIniciais);
+                }
+                $('areaCarregarMais').classList.remove('hidden');
+                return;
+            }
+
+            if (!append) mostrarSkeleton();
+
+            let endereco = '';
+            switch(categoria) {
+                case 'filmes': endereco = `${BASE_URL}/movie/popular?api_key=${API_KEY}&language=${IDIOMA}&page=${pag}`; break;
+                case 'series': endereco = `${BASE_URL}/tv/popular?api_key=${API_KEY}&language=${IDIOMA}&page=${pag}`; break;
+                case 'lancamentos': endereco = `${BASE_URL}/movie/now_playing?api_key=${API_KEY}&language=${IDIOMA}&page=${pag}`; break;
+                case 'populares': endereco = `${BASE_URL}/trending/all/week?api_key=${API_KEY}&language=${IDIOMA}&page=${pag}`; break;
+                case 'animes': endereco = `${BASE_URL}/discover/tv?api_key=${API_KEY}&language=${IDIOMA}&with_genres=16&page=${pag}`; break;
+            }
+
+            try {
+                const resp = await fetch(endereco);
+                const dados = await resp.json();
+                if (!dados.results) throw new Error('API error');
+                const lista = dados.results.map(i => ({
+                    id: i.id, titulo: i.title || i.name,
+                    info: `${(i.vote_average||0).toFixed(1)} - ${(i.release_date||i.first_air_date||'').substring(0,4)}`,
+                    capa: i.poster_path ? IMG_URL + i.poster_path : '',
+                    novo: Math.random() > 0.7, nota: i.vote_average || 0,
+                    ano: (i.release_date || i.first_air_date || '????').substring(0,4),
+                    tipo: i.title ? 'Filme' : 'Série',
+                    sinopse: i.overview || 'Sem descrição disponível.'
+                })).filter(i => i.capa);
+                exibirGrade(lista, append);
+                $('areaCarregarMais').classList.toggle('hidden', pag >= (dados.total_pages || 1));
+            } catch {
+                if (!append) exibirGrade(dadosIniciais);
+                $('areaCarregarMais').classList.add('hidden');
+            }
+        }
+
+        // === ADICIONAR AO HISTÓRICO ===
+        function adicionarHistorico(item) {
+            historico = historico.filter(h => h.id !== item.id);
+            historico.unshift({ ...item, vistoEm: new Date().toLocaleString('pt-BR') });
+            if (historico.length > 20) historico = historico.slice(0, 20);
+            localStorage.setItem('historico', JSON.stringify(historico));
+        }
+
+        // === DETALHES ===
+        function abrirDetalhes(dados) {
+            adicionarHistorico(dados);
+            $('imgDetalheCapa').src = dados.capa;
+            imgComFade($('imgDetalheCapa'));
+            $('tituloDetalhe').textContent = dados.titulo;
+            $('notaDetalhe').textContent = dados.nota > 0 ? '\u2B50 ' + dados.nota.toFixed(1) : '';
+            $('anoDetalhe').textContent = dados.ano;
+            $('tipoDetalhe').textContent = dados.tipo;
+
+            // Verificar se já é favorito
+            const jaFav = favoritos.some(f => f.id === dados.id);
+            $('btnFavoritar').innerHTML = jaFav ? '<i class="fa fa-check"></i>' : '<i class="fa fa-plus"></i>';
+            $('btnFavoritar').title = jaFav ? 'Na sua lista' : 'Adicionar à lista';
+
+            // Verificar se já foi baixado
+            const jaBaixado = baixados.some(b => b.id === dados.id);
+            $('btnBaixar').innerHTML = jaBaixado ? '<i class="fa fa-check text-green-400"></i>' : '<i class="fa fa-download"></i>';
+
+            $('sinopseDetalhe').textContent = dados.sinopse;
+
+            const tela = $('telaDetalhes');
+            tela.classList.remove('hidden', 'detalhes-saida');
+            tela.classList.add('detalhes-entrada');
+            document.body.style.overflow = 'hidden';
+
+            // Salvar ref para botões
+            tela._dados = dados;
+        }
+
+        function fecharDetalhes() {
+            const tela = $('telaDetalhes');
+            tela.classList.remove('detalhes-entrada');
+            tela.classList.add('detalhes-saida');
+            setTimeout(() => { tela.classList.add('hidden'); document.body.style.overflow = ''; }, 300);
+        }
+
+        // === PLAYER ===
+        function abrirPlayer(dados) {
+            $('tituloPlayer').textContent = dados.titulo;
+            $('infoPlayer').textContent = dados.ano + ' - ' + dados.tipo;
+            tempoSegundos = 0;
+            $('barraProgresso').style.width = '0%';
+            $('tempoAtual').textContent = '00:00';
+            $('btnPlayPause').innerHTML = '<i class="fa fa-pause"></i>';
+
+            const tela = $('telaPlayer');
+            tela.classList.remove('hidden', 'tela-saida');
+            tela.classList.add('tela-entrada');
+            document.body.style.overflow = 'hidden';
+
+            // Simular progresso
+            if (playerIntervalo) clearInterval(playerIntervalo);
+            playerIntervalo = setInterval(() => {
+                tempoSegundos++;
+                if (tempoSegundos >= 8100) { tempoSegundos = 0; }
+                const pct = (tempoSegundos / 8100) * 100;
+                $('barraProgresso').style.width = pct + '%';
+                const h = String(Math.floor(tempoSegundos / 3600)).padStart(2, '0');
+                const m = String(Math.floor((tempoSegundos % 3600) / 60)).padStart(2, '0');
+                const s = String(tempoSegundos % 60).padStart(2, '0');
+                $('tempoAtual').textContent = h + ':' + m + ':' + s;
+            }, 1000);
+        }
+
+        function fecharPlayer() {
+            if (playerIntervalo) { clearInterval(playerIntervalo); playerIntervalo = null; }
+            const tela = $('telaPlayer');
+            tela.classList.remove('tela-entrada');
+            tela.classList.add('tela-saida');
+            setTimeout(() => { tela.classList.add('hidden'); document.body.style.overflow = ''; }, 300);
+        }
+
+        // === TROCAR TELA PRINCIPAL ===
+        function trocarTela(nome) {
+            if (nome === 'inicio') {
+                // Voltar para a tela principal
+                ['telaCategorias', 'telaBaixados', 'telaPerfil', 'telaHistorico', 'telaPlayer'].forEach(id => {
+                    $(id).classList.add('hidden');
+                    $(id).classList.remove('tela-entrada');
+                });
+                $('telaPrincipal').classList.remove('hidden');
+                $('barraSuperior').style.transform = '';
+                $('barraCategorias').style.transform = '';
+                telaAtiva = 'inicio';
+                atualizarNavAtiva('inicio');
+                return;
+            }
+
+            $('telaPrincipal').classList.add('hidden');
+
+            // Fechar qualquer tela aberta
+            ['telaCategorias', 'telaBaixados', 'telaPerfil', 'telaHistorico'].forEach(id => {
+                $(id).classList.add('hidden');
+                $(id).classList.remove('tela-entrada', 'tela-saida');
+            });
+
+            const telaMap = {
+                categorias: { el: $('telaCategorias'), build: buildCategorias },
+                baixados: { el: $('telaBaixados'), build: buildBaixados },
+                perfil: { el: $('telaPerfil'), build: buildPerfil },
+                historico: { el: $('telaHistorico'), build: buildHistorico },
+            };
+
+            const alvo = telaMap[nome];
+            if (!alvo) return;
+
+            // Esconder/mostrar barras
+            if (nome === 'perfil' || nome === 'historico') {
+                $('barraCategorias').style.transform = 'translateY(-100%)';
+            } else {
+                $('barraCategorias').style.transform = '';
+            }
+
+            alvo.build();
+            alvo.el.classList.remove('hidden', 'tela-saida');
+            alvo.el.classList.add('tela-entrada');
+            alvo.el.scrollTop = 0;
+            telaAtiva = nome;
+            atualizarNavAtiva(nome);
+        }
+
+        function atualizarNavAtiva(nome) {
+            const map = { inicio: 'inicio', categorias: 'categorias', baixados: 'baixados', perfil: 'perfil' };
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                const tela = btn.dataset.tela;
+                btn.classList.toggle('nav-ativo', tela === (map[nome] || ''));
+                btn.classList.toggle('text-textMuted', tela !== (map[nome] || ''));
+            });
+        }
+
+        // === BUILD: CATEGORIAS ===
+        function buildCategorias() {
+            const grid = $('gridCategorias');
+            grid.innerHTML = '';
+            const frag = document.createDocumentFragment();
+            categorias.forEach((cat, i) => {
+                const card = document.createElement('div');
+                card.className = `cat-card bg-gradient-to-br ${cat.cor} rounded-xl p-5 cursor-pointer relative overflow-hidden card-fade`;
+                card.style.animationDelay = (i * 0.05) + 's';
+                card.innerHTML = `<i class="fa ${cat.icon} text-3xl text-white/90 mb-2 block"></i><span class="text-white font-bold text-base">${cat.nome}</span><div class="absolute -right-3 -bottom-3 w-16 h-16 bg-white/10 rounded-full"></div>`;
+                card.onclick = () => {
+                    mostrarToast('Buscando ' + cat.nome + '...', 'fa-search', 'text-blue-400');
+                    trocarTela('inicio');
+                    // Resetar busca
+                    $('campoBusca').value = '';
+                    // Simular busca por categoria nos dados iniciais
+                    const resultados = dadosIniciais.filter(d => d.titulo.toLowerCase().includes(cat.nome.toLowerCase()));
+                    if (resultados.length > 0) {
+                        exibirGrade(resultados);
+                        $('areaCarregarMais').classList.add('hidden');
+                    } else {
+                        // Buscar na API
+                        const genreMap = { 'Ação': 28, 'Comédia': 35, 'Drama': 18, 'Terror': 27, 'Ficção Científica': 878, 'Romance': 10749, 'Suspense': 53, 'Animação': 16, 'Documentário': 99, 'Fantasia': 14, 'Crime': 80, 'Aventura': 12 };
+                        const genreId = genreMap[cat.nome] || '';
+                        if (genreId) {
+                            mostrarSkeleton();
+                            fetch(`${BASE_URL}/discover/movie?api_key=${API_KEY}&language=${IDIOMA}&with_genres=${genreId}`)
+                                .then(r => r.json()).then(dados => {
+                                    if (dados.results) {
+                                        const lista = dados.results.map(i => ({ id: i.id, titulo: i.title||i.name, info: `${(i.vote_average||0).toFixed(1)} - ${(i.release_date||i.first_air_date||'').substring(0,4)}`, capa: i.poster_path ? IMG_URL+i.poster_path : '', novo: false, nota: i.vote_average||0, ano: (i.release_date||i.first_air_date||'????').substring(0,4), tipo: i.title?'Filme':'Série', sinopse: i.overview||'Sem descrição.' })).filter(i=>i.capa);
+                                        exibirGrade(lista);
+                                    } else { exibirGrade(dadosIniciais); }
+                                    $('areaCarregarMais').classList.add('hidden');
+                                }).catch(() => { exibirGrade(dadosIniciais); $('areaCarregarMais').classList.remove('hidden'); });
+                        } else {
+                            exibirGrade(dadosIniciais);
+                            $('areaCarregarMais').classList.remove('hidden');
+                        }
+                    }
+                };
+                frag.appendChild(card);
+            });
+            grid.appendChild(frag);
+        }
+
+        // === BUILD: BAIXADOS ===
+        function buildBaixados() {
+            const lista = $('listaBaixados');
+            lista.innerHTML = '';
+            if (baixados.length === 0) {
+                lista.innerHTML = `
+                    <div class="text-center py-16 text-textMuted">
+                        <i class="fa fa-download text-5xl mb-4 block opacity-20"></i>
+                        <p class="text-lg font-medium mb-1">Nenhum conteúdo baixado</p>
+                        <p class="text-sm">Toque no ícone de download nos detalhes do filme para salvar aqui.</p>
+                    </div>`;
+                return;
+            }
+            const frag = document.createDocumentFragment();
+            baixados.forEach((item, i) => {
+                const el = document.createElement('div');
+                el.className = 'flex items-center gap-4 bg-cardBg rounded-xl p-3 mb-3 card-fade cursor-pointer';
+                el.style.animationDelay = (i * 0.05) + 's';
+                el.onclick = () => abrirDetalhes(item);
+                el.innerHTML = `
+                    <img src="${item.capa}" class="w-14 h-20 rounded-lg object-cover bg-dark flex-shrink-0" alt="${item.titulo}">
+                    <div class="flex-1 min-w-0">
+                        <p class="font-semibold text-sm truncate">${item.titulo}</p>
+                        <p class="text-xs text-textMuted">${item.ano} - ${item.tipo}</p>
+                        <p class="text-xs text-green-400 mt-1"><i class="fa fa-check-circle mr-1"></i>Disponível offline</p>
+                    </div>
+                    <button class="text-textMuted hover:text-accent transition-colors p-2 text-lg" title="Remover">
+                        <i class="fa fa-trash"></i>
+                    </button>`;
+                el.querySelector('button').onclick = (e) => {
+                    e.stopPropagation();
+                    baixados = baixados.filter(b => b.id !== item.id);
+                    localStorage.setItem('baixados', JSON.stringify(baixados));
+                    buildBaixados();
+                    mostrarToast('Removido dos baixados', 'fa-trash', 'text-red-400');
+                };
+                frag.appendChild(el);
+            });
+            lista.appendChild(frag);
+        }
+
+        // === BUILD: PERFIL ===
+        function buildPerfil() {
+            $('conteudoPerfil').innerHTML = `
+                <div class="flex items-center gap-4 mb-8 bg-cardBg rounded-xl p-5">
+                    <div class="w-20 h-20 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
+                        <i class="fa fa-user text-3xl text-accent"></i>
+                    </div>
+                    <div>
+                        <p class="text-xl font-bold">Usuário</p>
+                        <p class="text-sm text-textMuted">usuario@email.com</p>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between bg-cardBg rounded-xl p-4 cursor-pointer hover:bg-cardBg/80 transition-colors active:scale-[0.98]" onclick="document.dispatchEvent(new Event('abrir-favoritos'))">
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-lg bg-pink-500/20 flex items-center justify-center"><i class="fa fa-heart text-pink-400"></i></div>
+                            <div><p class="font-semibold text-sm">Minha Lista</p><p class="text-xs text-textMuted">${favoritos.length} título(s)</p></div>
+                        </div>
+                        <i class="fa fa-chevron-right text-textMuted text-sm"></i>
+                    </div>
+
+                    <div class="flex items-center justify-between bg-cardBg rounded-xl p-4 cursor-pointer hover:bg-cardBg/80 transition-colors active:scale-[0.98]" onclick="document.dispatchEvent(new Event('abrir-historico-nav'))">
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center"><i class="fa fa-clock-o text-blue-400"></i></div>
+                            <div><p class="font-semibold text-sm">Histórico</p><p class="text-xs text-textMuted">${historico.length} acesso(s)</p></div>
+                        </div>
+                        <i class="fa fa-chevron-right text-textMuted text-sm"></i>
+                    </div>
+
+                    <div class="flex items-center justify-between bg-cardBg rounded-xl p-4 cursor-pointer hover:bg-cardBg/80 transition-colors active:scale-[0.98]" onclick="document.dispatchEvent(new Event('abrir-baixados-nav'))">
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-lg bg-green-500/20 flex items-center justify-center"><i class="fa fa-download text-green-400"></i></div>
+                            <div><p class="font-semibold text-sm">Downloads</p><p class="text-xs text-textMuted">${baixados.length} arquivo(s)</p></div>
+                        </div>
+                        <i class="fa fa-chevron-right text-textMuted text-sm"></i>
+                    </div>
+
+                    <div class="flex items-center justify-between bg-cardBg rounded-xl p-4 cursor-pointer hover:bg-cardBg/80 transition-colors active:scale-[0.98]" onclick="mostrarToast('Configurações em breve!', 'fa-cog', 'text-textMuted')">
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-lg bg-gray-500/20 flex items-center justify-center"><i class="fa fa-cog text-textMuted"></i></div>
+                            <p class="font-semibold text-sm">Configurações</p>
+                        </div>
+                        <i class="fa fa-chevron-right text-textMuted text-sm"></i>
+                    </div>
+
+                    <div class="flex items-center justify-between bg-cardBg rounded-xl p-4 cursor-pointer hover:bg-cardBg/80 transition-colors active:scale-[0.98]" onclick="mostrarToast('Ajuda e suporte em breve!', 'fa-question-circle', 'text-textMuted')">
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-lg bg-yellow-500/20 flex items-center justify-center"><i class="fa fa-question-circle text-yellow-400"></i></div>
+                            <p class="font-semibold text-sm">Ajuda e Suporte</p>
+                        </div>
+                        <i class="fa fa-chevron-right text-textMuted text-sm"></i>
+                    </div>
+
+                    <div class="flex items-center justify-between bg-cardBg rounded-xl p-4 cursor-pointer hover:bg-cardBg/80 transition-colors active:scale-[0.98]" onclick="mostrarToast('Sobre o app v1.0', 'fa-info-circle', 'text-textMuted')">
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center"><i class="fa fa-info-circle text-indigo-400"></i></div>
+                            <p class="font-semibold text-sm">Sobre o App</p>
+                        </div>
+                        <i class="fa fa-chevron-right text-textMuted text-sm"></i>
+                    </div>
+                </div>
+            `;
+        }
+
+        // === BUILD: HISTÓRICO ===
+        function buildHistorico() {
+            const lista = $('listaHistorico');
+            lista.innerHTML = '';
+            if (historico.length === 0) {
+                lista.innerHTML = `
+                    <div class="text-center py-16 text-textMuted">
+                        <i class="fa fa-clock-o text-5xl mb-4 block opacity-20"></i>
+                        <p class="text-lg font-medium mb-1">Nenhum histórico</p>
+                        <p class="text-sm">Os conteúdos que você acessar aparecerão aqui.</p>
+                    </div>`;
+                return;
+            }
+            const frag = document.createDocumentFragment();
+            historico.forEach((item, i) => {
+                const el = document.createElement('div');
+                el.className = 'flex items-center gap-4 bg-cardBg rounded-xl p-3 mb-3 card-fade cursor-pointer';
+                el.style.animationDelay = (i * 0.04) + 's';
+                el.onclick = () => abrirDetalhes(item);
+                el.innerHTML = `
+                    <img src="${item.capa}" class="w-14 h-20 rounded-lg object-cover bg-dark flex-shrink-0" alt="${item.titulo}">
+                    <div class="flex-1 min-w-0">
+                        <p class="font-semibold text-sm truncate">${item.titulo}</p>
+                        <p class="text-xs text-textMuted">${item.ano} - ${item.tipo}</p>
+                        <p class="text-xs text-textMuted mt-1"><i class="fa fa-eye mr-1"></i>${item.vistoEm || 'Recente'}</p>
+                    </div>
+                    <i class="fa fa-chevron-right text-textMuted text-sm"></i>`;
+                frag.appendChild(el);
+            });
+            lista.appendChild(frag);
+
+            // Botão limpar
+            const btnLimpar = document.createElement('button');
+            btnLimpar.className = 'w-full mt-4 bg-cardBg hover:bg-red-900/30 text-red-400 py-3 rounded-xl font-medium transition-colors active:scale-[0.98]';
+            btnLimpar.textContent = 'Limpar Histórico';
+            btnLimpar.onclick = () => { historico = []; localStorage.setItem('historico', '[]'); buildHistorico(); mostrarToast('Histórico limpo', 'fa-trash', 'text-red-400'); };
+            lista.appendChild(btnLimpar);
+        }
+
+        // === FAVORITOS (tela via perfil) ===
+        function buildFavoritos() {
+            if (favoritos.length === 0) {
+                $('telaPrincipal').classList.remove('hidden');
+                $('telaPerfil').classList.add('hidden');
+                exibirGrade([]);
+                mostrarToast('Sua lista está vazia. Adicione filmes com o botão +', 'fa-heart', 'text-pink-400');
+                $('areaCarregarMais').classList.add('hidden');
+                return;
+            }
+            $('telaPrincipal').classList.remove('hidden');
+            $('telaPerfil').classList.add('hidden');
+            exibirGrade(favoritos);
+            $('areaCarregarMais').classList.add('hidden');
+            mostrarToast('Mostrando sua lista com ' + favoritos.length + ' título(s)', 'fa-heart', 'text-pink-400');
+            atualizarNavAtiva('inicio');
+        }
+
+        // === INICIALIZAR EVENTOS ===
+        function init() {
+            // Navegação inferior
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tela = btn.dataset.tela;
+                    if (tela === 'inicio') {
+                        $('campoBusca').value = '';
+                        trocarTela('inicio');
+                        carregarDados('inicio');
+                    } else {
+                        trocarTela(tela);
+                    }
+                });
+            });
+
+            // Menu categorias superior
+            document.querySelectorAll('#menuCategorias li').forEach(aba => {
+                aba.addEventListener('click', () => {
+                    document.querySelectorAll('#menuCategorias li').forEach(el => el.classList.remove('text-white','font-bold','border-b-2','border-accent'));
+                    aba.classList.add('text-white','font-bold','border-b-2','border-accent');
+                    if (telaAtiva !== 'inicio') trocarTela('inicio');
+                    $('campoBusca').value = '';
+                    carregarDados(aba.dataset.cat);
+                });
+            });
+
+            // Detalhes - fechar
+            $('btnFecharDetalhes').addEventListener('click', fecharDetalhes);
+
+            // Detalhes - assistir
+            $('btnAssistir').addEventListener('click', () => {
+                const dados = $('telaDetalhes')._dados;
+                if (dados) abrirPlayer(dados);
+            });
+
+            // Detalhes - favoritar
+            $('btnFavoritar').addEventListener('click', () => {
+                const dados = $('telaDetalhes')._dados;
+                if (!dados) return;
+                const idx = favoritos.findIndex(f => f.id === dados.id);
+                if (idx >= 0) {
+                    favoritos.splice(idx, 1);
+                    $('btnFavoritar').innerHTML = '<i class="fa fa-plus"></i>';
+                    $('btnFavoritar').title = 'Adicionar à lista';
+                    mostrarToast('Removido da sua lista', 'fa-minus-circle', 'text-red-400');
+                } else {
+                    favoritos.push(dados);
+                    $('btnFavoritar').innerHTML = '<i class="fa fa-check"></i>';
+                    $('btnFavoritar').title = 'Na sua lista';
+                    mostrarToast('Adicionado à sua lista!', 'fa-heart', 'text-pink-400');
+                }
+                localStorage.setItem('favoritos', JSON.stringify(favoritos));
+            });
+
+            // Detalhes - baixar
+            $('btnBaixar').addEventListener('click', () => {
+                const dados = $('telaDetalhes')._dados;
+                if (!dados) return;
+                const jaBaixado = baixados.some(b => b.id === dados.id);
+                if (jaBaixado) {
+                    baixados = baixados.filter(b => b.id !== dados.id);
+                    $('btnBaixar').innerHTML = '<i class="fa fa-download"></i>';
+                    mostrarToast('Download removido', 'fa-trash', 'text-red-400');
+                } else {
+                    baixados.push(dados);
+                    $('btnBaixar').innerHTML = '<i class="fa fa-check text-green-400"></i>';
+                    mostrarToast('Baixado com sucesso!', 'fa-download', 'text-green-400');
+                }
+                localStorage.setItem('baixados', JSON.stringify(baixados));
+            });
+
+            // Detalhes - compartilhar
+            $('btnCompartilhar').addEventListener('click', () => {
+                const dados = $('telaDetalhes')._dados;
+                if (dados && navigator.share) {
+                    navigator.share({ title: dados.titulo, text: dados.sinopse }).catch(() => {});
+                } else {
+                    mostrarToast('Link copiado!', 'fa-share-alt', 'text-blue-400');
+                }
+            });
+
+            // Player - fechar
+            $('btnFecharPlayer').addEventListener('click', fecharPlayer);
+
+            // Player - play/pause
+            $('btnPlayPause').addEventListener('click', () => {
+                if (playerIntervalo) {
+                    clearInterval(playerIntervalo);
+                    playerIntervalo = null;
+                    $('btnPlayPause').innerHTML = '<i class="fa fa-play"></i>';
+                } else {
+                    playerIntervalo = setInterval(() => {
+                        tempoSegundos++;
+                        if (tempoSegundos >= 8100) tempoSegundos = 0;
+                        $('barraProgresso').style.width = (tempoSegundos / 8100 * 100) + '%';
+                        const h = String(Math.floor(tempoSegundos/3600)).padStart(2,'0');
+                        const m = String(Math.floor((tempoSegundos%3600)/60)).padStart(2,'0');
+                        const s = String(tempoSegundos%60).padStart(2,'0');
+                        $('tempoAtual').textContent = h+':'+m+':'+s;
+                    }, 1000);
+                    $('btnPlayPause').innerHTML = '<i class="fa fa-pause"></i>';
+                }
+            });
+
+            // Ícone histórico (barra de busca)
+            $('btnHistorico').addEventListener('click', () => {
+                $('campoBusca').value = '';
+                trocarTela('historico');
+            });
+
+            // Ícone baixados (barra de busca)
+            $('btnBaixadosTopo').addEventListener('click', () => {
+                $('campoBusca').value = '';
+                trocarTela('baixados');
+            });
+
+            // Carregar mais
+            $('btnCarregarMais').addEventListener('click', () => {
+                carregarDados(categoriaAtiva, paginaAtual + 1, true);
+            });
+
+            // Busca com debounce
+            let tempoBusca;
+            $('campoBusca').addEventListener('input', e => {
+                clearTimeout(tempoBusca);
+                const termo = e.target.value.trim();
+                if (!termo) {
+                    if (telaAtiva !== 'inicio') trocarTela('inicio');
+                    return carregarDados(categoriaAtiva);
+                }
+                if (telaAtiva !== 'inicio') trocarTela('inicio');
+                tempoBusca = setTimeout(async () => {
+                    mostrarSkeleton();
+                    try {
+                        const resp = await fetch(`${BASE_URL}/search/multi?api_key=${API_KEY}&language=${IDIOMA}&query=${encodeURIComponent(termo)}`);
+                        const dados = await resp.json();
+                        const lista = (dados.results||[]).filter(i => i.poster_path).map(i => ({
+                            id: i.id, titulo: i.title || i.name,
+                            info: `${(i.vote_average||0).toFixed(1)} - ${(i.release_date||i.first_air_date||'').substring(0,4)}`,
+                            capa: IMG_URL + i.poster_path, novo: false, nota: i.vote_average || 0,
+                            ano: (i.release_date || i.first_air_date || '????').substring(0,4),
+                            tipo: i.media_type === 'tv' ? 'Série' : 'Filme',
+                            sinopse: i.overview || 'Sem descrição disponível.'
+                        }));
+                        exibirGrade(lista);
+                        $('areaCarregarMais').classList.add('hidden');
+                    } catch {
+                        const local = dadosIniciais.filter(d => d.titulo.toLowerCase().includes(termo.toLowerCase()));
+                        exibirGrade(local.length ? local : dadosIniciais);
+                        $('areaCarregarMais').classList.toggle('hidden', local.length > 0);
+                    }
+                }, 400);
+            });
+
+            // Eventos do perfil que abrem sub-telas
+            document.addEventListener('abrir-favoritos', buildFavoritos);
+            document.addEventListener('abrir-historico-nav', () => trocarTela('historico'));
+            document.addEventListener('abrir-baixados-nav', () => trocarTela('baixados'));
+
+            // Swipe para fechar detalhes
+            let touchStartY = 0;
+            $('telaDetalhes').addEventListener('touchstart', e => { touchStartY = e.touches[0].clientY; }, { passive: true });
+            $('telaDetalhes').addEventListener('touchend', e => {
+                const diff = e.changedTouches[0].clientY - touchStartY;
+                if (diff > 100) fecharDetalhes();
+            }, { passive: true });
+
+            // Scroll suave - esconder/mostrar barra
+            let lastScroll = 0;
+            window.addEventListener('scroll', () => {
+                const curr = window.scrollY;
+                if (telaAtiva === 'inicio') {
+                    $('barraSuperior').style.transform = curr > lastScroll && curr > 80 ? 'translateY(-100%)' : '';
+                    $('barraCategorias').style.transform = (curr > lastScroll && curr > 130) ? 'translateY(-100%)' : '';
+                }
+                lastScroll = curr;
+            }, { passive: true });
+
+            // Iniciar
+            carregarDados('inicio');
+        }
+
+        // === START ===
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    })();
+    </script>
+</body>
+</html>
